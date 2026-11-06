@@ -4,9 +4,11 @@
 
 ## 安装
 
-支持 macOS、Linux。Windows 版待定：作者这个周末（11 月 7、8 日）回家后开发并做兼容性测试，进度见 [#17](https://github.com/KKKKhazix/agent-autoloop/issues/17)，现在还不能直接装。在 WSL2 里按 Linux 安装能跑通（有用户实测过），要知道这几件事：系统服务要发行版开着 systemd（`/etc/wsl.conf` 里 `systemd=true`，没开就加 `--no-service`，自己运行 `agent-autoloop up`），默认也不会在没人登录时启动，要的话运行 `loginctl enable-linger`；桌面通知到不了 Windows 桌面，用 `agent-autoloop status` 看卡片，或者接飞书等通道；用 `command` 接的 Agent 不上报用量，Token 和费用显示“没上报”；WSL2 本身要占 1GB 左右内存。
+支持 macOS、Linux，原生 Windows 暂不支持，兼容进度见 [#17](https://github.com/KKKKhazix/agent-autoloop/issues/17)。Windows 用户目前在 WSL2 里按 Linux 方式运行，要知道这几件事：系统服务要发行版开着 systemd（`/etc/wsl.conf` 里 `systemd=true`，没开就加 `--no-service`，自己运行 `agent-autoloop up`），默认也不会在没人登录时启动，要的话运行 `loginctl enable-linger`；桌面通知到不了 Windows 桌面，用 `agent-autoloop status` 看卡片，或者接飞书等通道；用 `command` 接的 Agent 不上报用量，Token 和费用显示“没上报”；WSL2 本身要占 1GB 左右内存。
 
 需要 Node.js 24 或更新、Git、curl，以及一个已经登录的命令行 Agent。
+
+**本 fork 的工作台与任务对话：** 下方上游安装器和 `update` 不包含此功能；本地安装器也只克隆已提交的 HEAD，不会安装未提交的改动。要运行当前源码，请按[工作台启动说明](clients/workbench/README.md#启动)使用源码版 `init --no-service`、`workbench:chat`、`up` 和 `workbench`，所有进程共用同一个 `AGENT_AUTOLOOP_HOME`。已有配置不要重新 `init`，也不要同时运行两个中台/worker。完整回复需要本 fork 更新后的同机 worker；仅启动新页面配旧 worker 仍只有摘要。
 
 先检查 `node --version`。Homebrew 的 `node@24` 默认不进 PATH，装好后还要运行 `export PATH="$(brew --prefix node@24)/bin:$PATH"`；需要长期生效时再写入用户的 shell 配置。不要替用户登录，也不要读取或复制登录凭据。
 

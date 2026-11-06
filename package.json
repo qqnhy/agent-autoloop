@@ -24,7 +24,8 @@
     "test:deep": "node --disable-warning=ExperimentalWarning --test --test-concurrency=1 sim/*.test.ts",
     "test:nightly": "npm run test:deep && node --disable-warning=ExperimentalWarning scripts/benchmark.ts",
     "benchmark": "node --disable-warning=ExperimentalWarning scripts/benchmark.ts",
-    "workbench": "node --disable-warning=ExperimentalWarning clients/workbench/server.ts"
+    "workbench": "node --disable-warning=ExperimentalWarning clients/workbench/server.ts",
+    "workbench:chat": "node --disable-warning=ExperimentalWarning clients/workbench/setup-chat.ts"
   },
   "devDependencies": {
     "@types/node": "26.6.4",

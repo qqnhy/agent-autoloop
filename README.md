@@ -17,13 +17,13 @@
 - **一台电脑、一条命令就能跑。** 装在你的 Mac 或 Linux 上，不用买云服务器，也不用开放公网端口。
 - **一行配置接新 Agent。** 不需要 SDK，也不需要改 Agent 源码，能接收提示词并打印最后一条回复的命令行工具都能接。
 - **中台保持无界面。** 需要你拍板时把卡片推到飞书、钉钉、企微、Slack、Discord 或桌面通知；想看全局进展，敲一行命令。
-- **本 fork 的可选工作台。** 在源码目录运行 `npm run workbench`，打开本机页面查看任务、运行详情和待确认问题，并回答卡片。它是独立 HTTP 客户端，不改变中台协议。见[启动方式与边界](clients/workbench/README.md)。
+- **本 fork 的本机工作台。** 查看任务、运行详情和待确认问题，回答卡片；按本机预先配置的 Agent 和目录新建任务对话、发送需求、读最终回复并继续讨论。它是独立 HTTP 客户端，不改变中台协议。完整回复需要本 fork 更新后的本机 worker，不是实时流式输出。见[启动方式与边界](clients/workbench/README.md)。
 
 ## 上手
 
 支持 macOS 和 Linux。运行前需要装好 Node 24、Git、curl，以及任意一个你已经登录好的命令行 Agent，不需要 GitHub 账号。也可以直接把[安装说明](INSTALL.md)丢给你的 Agent，让它替你装好。
 
-> **Windows 版：待定。** 很多朋友在问 Windows 版，我都看到了。我现在人在外面出差，手边没有 Windows 电脑，没法真机开发和测试，所以现在还不能在 Windows 上用。这个周末（11 月 7、8 日）回家后，我会把它开发完，做完兼容性测试，再正式推出。进度会更新在 [#17](https://github.com/KKKKhazix/agent-autoloop/issues/17)。等不及的话可以先用 WSL2，注意事项见 [INSTALL](INSTALL.md)。
+> **Windows：目前使用 WSL2。** 原生 Windows 尚不支持；请在 WSL2 中按 Linux 方式启动，服务和通知限制见 [INSTALL](INSTALL.md)，原生兼容进度见 [#17](https://github.com/KKKKhazix/agent-autoloop/issues/17)。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/KKKKhazix/agent-autoloop/main/install.sh | sh
@@ -53,6 +53,23 @@ Agent 结束了这一轮，问了你一个问题。它现在不占进程、不�
 ```
 
 交互终端里直接输入数字回车；非交互终端运行 `agent-autoloop answer 1 2` 选择“绿色”。再跑 `agent-autoloop status`，就能看到它接上刚才的会话并显示“你选了绿色，试跑通过”，还有今天和最近 7 天的轮数、Token 和费用（[统计口径](skills/agent-autoloop/SKILL.md#看情况回答)）。
+
+## 从本 fork 启动任务对话
+
+需要 Node.js 24+、本 fork 源码，以及已初始化的本机中台配置（owner、source、hub 和 worker）。首次安装请按[工作台启动说明](clients/workbench/README.md#首次从源码启动)运行源码版 `init`，已有配置不要重复初始化。
+
+```sh
+# 在本 fork 源码根目录；所有命令使用同一个 AGENT_AUTOLOOP_HOME。
+# EXISTING_ID 和 EXISTING_PATH 分别换成已登记的 Agent 编号和已有项目绝对路径。
+npm run workbench:chat -- --name "项目对话" --agent EXISTING_ID --cwd EXISTING_PATH
+node bin/agent-autoloop.ts up
+# 在另一个终端、同一源码及数据目录下运行：
+npm run workbench
+```
+
+打开 `http://127.0.0.1:4318`，选择已配置的规则并新建对话。开通命令先备份规则，固定 Agent 与目录，设置 `resume: true`、`parallel: 1`；浏览器不能配置任意命令、权限或路径。已有中台/worker 正在运行时先按[说明](clients/workbench/README.md#使用已有配置)停止并重启，不要同时启动第二个实例。
+
+对话与已读取回复保存在本机，重启页面服务后仍可查看。旧版或远端 worker 没有可读取的完整回复时明确显示“仅运行摘要”。续接使用 Agent 实际返回的会话编号，不保证模型上下文永久保留。提问卡片必须明确回答，聊天中的“同意”不能替代卡片或版本绑定的 Spec / Plan 审批。上面的上游安装和更新命令不包含此 fork 功能。
 
 ## 一件事怎么转起来
 

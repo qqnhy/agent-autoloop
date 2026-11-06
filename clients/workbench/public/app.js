@@ -65,8 +65,11 @@ async function api(path, options = {}) {
   } catch {
     throw new Error(`服务返回了无法读取的响应（HTTP ${response.status}）`);
   }
-  if (!response.ok)
-    throw new Error(typeof data?.error === "string" ? data.error : `请求失败（HTTP ${response.status}）`);
+  if (!response.ok) {
+    const error = new Error(typeof data?.error === "string" ? data.error : `请求失败（HTTP ${response.status}）`);
+    error.notSubmitted = data?.notSubmitted === true;
+    throw error;
+  }
   return data;
 }
 function preserveFocus(container, render) {
@@ -367,6 +370,7 @@ function detailBase(run) {
     grid.append(pair);
   }
   fragment.append(grid);
+  appendConversationLink(fragment, run);
   if (run.state === "queued" && run.notBefore) fragment.append(el("p", `最早领取时间：${time(run.notBefore)}`, "meta"));
   const session = link(run.link, "打开运行会话 ↗");
   if (session) fragment.append(session);
@@ -594,3 +598,349 @@ refresh();
 setInterval(() => {
   if (!document.hidden) refresh();
 }, 15000);
+
+const chat = {
+  routes: [],
+  conversations: [],
+  selected: null,
+  detail: null,
+  version: 0,
+  indexVersion: 0,
+  detailLoading: null,
+  drafts: new Map(),
+  creating: false,
+  creation: null,
+  signature: null,
+};
+function chatDraft(id = chat.selected) {
+  if (!chat.drafts.has(id)) chat.drafts.set(id, { text: "", pending: null, busy: false, notice: "" });
+  return chat.drafts.get(id);
+}
+function chatError(message) {
+  $("chat-error").hidden = !message;
+  $("chat-error").textContent = message || "";
+}
+function appendConversationLink(fragment, run) {
+  const conversation = chat.conversations.find((item) =>
+    array(run.events).some((event) => event.subject === item.subject),
+  );
+  if (!conversation) return;
+  const button = el("button", "打开这个任务的对话 →", "button secondary chat-open");
+  button.type = "button";
+  button.addEventListener("click", () => {
+    selectChat(conversation.id);
+    $("chat-section").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+  fragment.append(button);
+}
+function renderChatList() {
+  preserveFocus($("chat-list"), () => {
+    $("chat-list").replaceChildren(
+      ...chat.conversations.map((conversation) => {
+        const button = el("button", null, `chat-list-item${chat.selected === conversation.id ? " selected" : ""}`);
+        button.type = "button";
+        button.dataset.focus = conversation.id;
+        button.setAttribute("aria-current", chat.selected === conversation.id ? "true" : "false");
+        button.append(
+          el("strong", conversation.title || "未命名任务"),
+          el("span", conversation.agent, "meta"),
+          el("span", time(conversation.updatedAt), "meta"),
+        );
+        button.addEventListener("click", () => selectChat(conversation.id));
+        return button;
+      }),
+    );
+    if (!chat.conversations.length) $("chat-list").append(empty("还没有任务对话。选择上方 Agent，开始第一个需求。"));
+  });
+}
+function renderChatRoutes() {
+  const selected = chat.creation?.rule || $("chat-route").value;
+  $("chat-route").replaceChildren(
+    ...chat.routes.map((route) => {
+      const option = el("option", `${route.name} · ${route.agentName || route.agent}`);
+      option.value = route.id;
+      return option;
+    }),
+  );
+  if (chat.routes.some((route) => route.id === selected)) $("chat-route").value = selected;
+  $("chat-route").disabled = !chat.routes.length || Boolean(chat.creation);
+  $("chat-create").disabled = !chat.routes.length || chat.creating;
+  $("chat-create").textContent = chat.creating ? "正在创建…" : chat.creation ? "重试创建同一对话" : "＋ 新建对话";
+  renderChatRouteInfo();
+}
+function renderChatRouteInfo() {
+  const route = chat.routes.find((item) => item.id === $("chat-route").value);
+  $("chat-route-info").textContent = route
+    ? `Agent：${route.agentName || route.agent}\n工作目录：${route.cwd}\n${route.resume ? "允许接续会话，实际情况以每轮记录为准。" : "每轮使用新会话。"}`
+    : "";
+}
+async function loadChatIndex() {
+  const version = ++chat.indexVersion;
+  try {
+    const [routes, conversations] = await Promise.all([api("/api/chat/routes"), api("/api/chat/conversations")]);
+    if (version !== chat.indexVersion) return;
+    if (!Array.isArray(routes.routes) || !Array.isArray(conversations.conversations))
+      throw new Error("对话列表格式不正确");
+    chat.routes = routes.routes;
+    chat.conversations = conversations.conversations;
+    renderChatRoutes();
+    renderChatList();
+    $("chat-setup").hidden = chat.routes.length > 0 && !routes.problem;
+    $("chat-setup").textContent =
+      routes.problem ||
+      (!chat.routes.length
+        ? '还没有开放给工作台的对话规则。请在本机配置：npm run workbench:chat -- --name "项目对话" --agent <已配置 Agent ID> --cwd <项目路径>。此处不会执行配置命令。'
+        : "");
+    chatError("");
+    if (model.selected !== null) {
+      model.detailSignature = null;
+      loadDetail(true);
+    }
+  } catch (error) {
+    if (version !== chat.indexVersion) return;
+    chatError(`无法读取任务对话：${error.message}。可刷新重试，未发送内容仍保留在此页面。`);
+  }
+}
+function renderChatComposer() {
+  const selected = Boolean(chat.selected);
+  const draft = selected ? chatDraft() : null;
+  const detail = chat.detail;
+  $("chat-text").disabled = !selected;
+  $("chat-text").readOnly = Boolean(draft?.pending || draft?.busy);
+  $("chat-length").textContent = `${$("chat-text").value.length} / 4000`;
+  $("chat-send").disabled =
+    !selected || !detail?.canSend || Boolean(draft?.pending || draft?.busy) || !draft?.text.trim();
+  $("chat-send").textContent = draft?.busy ? "正在提交…" : "发送消息 →";
+  $("chat-retry").hidden = !draft?.pending || draft.busy;
+  $("chat-status").textContent = !selected
+    ? "请先选择或新建对话。"
+    : draft.busy
+      ? "正在提交消息，请勿重复发送。"
+      : draft.pending
+        ? "尚未确认这条消息是否送达。内容已锁定；请核对并使用下方按钮重试原消息，不要另建一条重复消息。"
+        : detail
+          ? detail.canSend
+            ? draft.notice || "发送会交给中台调度；回复在本轮结束后显示。"
+            : detail.blockReason || "暂时不能发送，请等待当前任务状态确认。"
+          : "正在读取任务状态；你可以先写草稿。";
+}
+function renderChatHistory(detail) {
+  const history = $("chat-history");
+  const signature = JSON.stringify([detail.messages, detail.runs, detail.historyComplete]);
+  if (signature === chat.signature) return;
+  chat.signature = signature;
+  const atBottom = history.scrollHeight - history.scrollTop - history.clientHeight < 80;
+  const scrollTop = history.scrollTop;
+  const entries = [];
+  for (const message of array(detail.messages)) entries.push({ at: message.at, message });
+  for (const run of array(detail.runs))
+    entries.push({ at: run.reply?.at || run.finishedAt || run.claimedAt || 0, run });
+  entries.sort((a, b) => (new Date(a.at).getTime() || 0) - (new Date(b.at).getTime() || 0));
+  preserveFocus(history, () => {
+    history.replaceChildren();
+    if (!detail.historyComplete)
+      history.append(el("p", "部分早期记录不可用，下面显示当前可读取的历史。", "scope-note"));
+    for (const entry of entries) {
+      const node = el("article", null, entry.message ? "chat-message chat-user" : "chat-message chat-agent");
+      if (entry.message) {
+        const message = entry.message;
+        node.append(el("p", `你 · ${time(message.at)}`, "meta"), el("p", message.text, "body-text"));
+        node.append(el("p", message.status === "accepted" ? "中台已接收" : "送达结果未确认", "meta"));
+        if (message.error) node.append(el("p", message.error, "form-message"));
+        if (message.status === "uncertain") {
+          const retry = el("button", "核对并重试这条原消息", "button secondary");
+          retry.type = "button";
+          retry.dataset.focus = `retry-${message.id}`;
+          retry.addEventListener("click", () => sendChatMessage({ id: message.id, text: message.text }));
+          node.append(retry);
+        }
+      } else {
+        const run = entry.run;
+        node.append(el("p", `Agent · 轮次 #${run.id} · ${time(entry.at)}`, "meta"), badge(run.state));
+        if (run.replyStatus === "available" && run.reply) {
+          node.append(el("p", run.reply.text || "此轮未返回文字。", "body-text"));
+          if (run.reply.truncated) node.append(el("p", "回复较长，当前内容已截断。", "scope-note"));
+        } else if (run.replyStatus === "waiting")
+          node.append(el("p", "等待本轮结束后读取最终回复。这里不是实时输出。", "muted"));
+        else {
+          node.append(el("p", "仅运行摘要，完整回复不可用（旧版或远端 worker / 输出已过期）", "scope-note"));
+          node.append(el("p", run.summary || "暂无运行摘要。", "body-text"));
+        }
+        if (run.error) node.append(el("p", run.error, "error-banner body-text"));
+        const messageCount = array(run.messageIds).length;
+        node.append(
+          el("p", `本轮关联 ${messageCount} 条用户消息${messageCount > 1 ? "，由中台合并处理" : ""}。`, "meta"),
+        );
+        node.append(
+          el(
+            "p",
+            run.session
+              ? `会话：${run.session} · ${run.resumed === true ? "已接续已有会话" : run.resumed === false ? "本轮新建会话" : "未记录是否接续"}`
+              : "尚无会话记录。",
+            "meta",
+          ),
+        );
+        if (run.notBefore && run.state === "queued") node.append(el("p", `最早领取：${time(run.notBefore)}`, "meta"));
+      }
+      history.append(node);
+    }
+    if (!entries.length) history.append(empty("还没有消息。写下你的需求，开始这项任务。"));
+  });
+  history.scrollTop = atBottom ? history.scrollHeight : scrollTop;
+}
+async function loadChatDetail() {
+  const id = chat.selected;
+  if (!id) return;
+  if (chat.detailLoading?.id === id && chat.detailLoading.version === chat.version) return;
+  const version = ++chat.version;
+  chat.detailLoading = { id, version };
+  try {
+    const detail = await api(`/api/chat/conversations/${encodeURIComponent(id)}`);
+    if (id !== chat.selected || version !== chat.version) return;
+    if (!detail.conversation || !Array.isArray(detail.messages) || !Array.isArray(detail.runs))
+      throw new Error("对话记录格式不正确");
+    chat.detail = detail;
+    const draft = chatDraft(id);
+    if (
+      draft.pending &&
+      detail.messages.some((message) => message.id === draft.pending.id && message.status === "accepted")
+    ) {
+      if (draft.text === draft.pending.text) draft.text = "";
+      draft.pending = null;
+      draft.notice = "消息已由中台接收。";
+      $("chat-text").value = draft.text;
+    }
+    $("chat-title").textContent = detail.conversation.title || "任务对话";
+    $("chat-context").textContent = `Agent：${detail.conversation.agent} · 工作目录：${detail.conversation.cwd}`;
+    renderChatHistory(detail);
+    $("chat-cards").replaceChildren();
+    const cards = array(detail.cards).filter((card) => card.kind === "ask" && card.state === "open");
+    if (cards.length) {
+      const note = el("div", null, "scope-note");
+      note.append(el("p", `Agent 有 ${cards.length} 个问题需要你明确回答。请在问题卡片提交，聊天消息不算卡片回答。`));
+      const anchor = el("a", "前往待你回答 ↓");
+      anchor.href = "#questions";
+      note.append(anchor);
+      $("chat-cards").append(note);
+    }
+    renderChatComposer();
+    chatError("");
+  } catch (error) {
+    if (id !== chat.selected || version !== chat.version) return;
+    chat.detail = null;
+    renderChatComposer();
+    chatError(`对话读取失败：${error.message}。显示的记录可能已过时；草稿已保留，请刷新重试。`);
+  } finally {
+    if (chat.detailLoading?.version === version) chat.detailLoading = null;
+  }
+}
+function selectChat(id) {
+  if (chat.selected === id) {
+    loadChatDetail();
+    return;
+  }
+  chat.selected = id;
+  chat.detail = null;
+  chat.signature = null;
+  chat.version++;
+  $("chat-text").value = chatDraft(id).text;
+  $("chat-title").textContent = chat.conversations.find((item) => item.id === id)?.title || "任务对话";
+  $("chat-context").textContent = "正在读取 Agent 和工作目录…";
+  $("chat-history").replaceChildren(empty("正在读取对话记录…"));
+  $("chat-cards").replaceChildren();
+  renderChatList();
+  renderChatComposer();
+  loadChatDetail();
+}
+async function sendChatMessage(retry = null) {
+  const id = chat.selected;
+  if (!id) return;
+  const draft = chatDraft(id);
+  if (draft.busy) return;
+  if (retry && draft.pending && retry.id !== draft.pending.id) {
+    chatError("请先核对当前尚未确认的消息，再处理其他消息。");
+    return;
+  }
+  if (!retry && (draft.pending || !chat.detail?.canSend || !draft.text.trim())) return;
+  const message = retry || { id: crypto.randomUUID(), text: draft.text };
+  draft.pending = message;
+  draft.busy = true;
+  chat.version++;
+  renderChatComposer();
+  try {
+    const result = await api(`/api/chat/conversations/${encodeURIComponent(id)}/messages`, {
+      method: "POST",
+      body: JSON.stringify(message),
+    });
+    if (result.message?.status === "accepted") {
+      if (draft.text === message.text) draft.text = "";
+      draft.pending = null;
+      draft.notice = "消息已由中台接收。";
+    }
+  } catch (error) {
+    if (error.notSubmitted === true) draft.pending = null;
+    draft.notice =
+      error.notSubmitted === true
+        ? `消息未提交：${error.message}。草稿已保留，可以修改后再发送。`
+        : `未能确认发送结果：${error.message}`;
+    if (id === chat.selected) chatError(draft.notice);
+  } finally {
+    draft.busy = false;
+    if (id === chat.selected) {
+      $("chat-text").value = draft.text;
+      renderChatComposer();
+      await loadChatDetail();
+    }
+  }
+}
+$("chat-route").addEventListener("change", renderChatRouteInfo);
+$("chat-text").addEventListener("input", () => {
+  if (!chat.selected) return;
+  chatDraft().text = $("chat-text").value;
+  chatDraft().notice = "";
+  renderChatComposer();
+});
+$("chat-compose").addEventListener("submit", (event) => {
+  event.preventDefault();
+  sendChatMessage();
+});
+$("chat-retry").addEventListener("click", () => {
+  if (chatDraft().pending) sendChatMessage(chatDraft().pending);
+});
+$("chat-new").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (chat.creating || !$("chat-route").value) return;
+  chat.creation ||= { id: crypto.randomUUID(), rule: $("chat-route").value };
+  chat.creating = true;
+  renderChatRoutes();
+  try {
+    const result = await api("/api/chat/conversations", { method: "POST", body: JSON.stringify(chat.creation) });
+    const conversation = result.conversation || result;
+    if (!conversation.id) throw new Error("服务未返回对话编号");
+    chat.creation = null;
+    await loadChatIndex();
+    selectChat(conversation.id);
+    $("chat-text").focus();
+  } catch (error) {
+    if (error.notSubmitted === true) chat.creation = null;
+    chatError(
+      error.notSubmitted === true
+        ? `对话未创建：${error.message}。请重新选择可用的任务规则。`
+        : `未能确认创建结果：${error.message}。重试会使用同一对话编号。`,
+    );
+  } finally {
+    chat.creating = false;
+    renderChatRoutes();
+  }
+});
+$("chat-refresh").addEventListener("click", async () => {
+  await loadChatIndex();
+  await loadChatDetail();
+});
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) loadChatDetail();
+});
+loadChatIndex();
+setInterval(() => {
+  if (!document.hidden && chat.selected && !chatDraft().busy) loadChatDetail();
+}, 5000);

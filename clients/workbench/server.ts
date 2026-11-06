@@ -1,8 +1,9 @@
-// A separate owner client: the hub stays headless. Only this loopback process reads the existing owner key.
+// A separate client: the hub stays headless. Credentials stay in this loopback process.
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
-import { readConfig } from "../../host/config.ts";
+import { readConfig, type Config } from "../../host/config.ts";
+import { createChatService, ChatError } from "./chat.ts";
 
 const ASSETS: Record<string, [string, string]> = {
   "/": ["index.html", "text/html; charset=utf-8"],
@@ -30,7 +31,7 @@ class ClientError extends Error {
 const json = (res: ServerResponse, status: number, value: unknown) =>
   res.writeHead(status, { ...HEADERS, "content-type": "application/json; charset=utf-8" }).end(JSON.stringify(value));
 
-async function answerBody(req: IncomingMessage) {
+async function jsonBody(req: IncomingMessage) {
   if (req.headers["content-type"]?.split(";")[0].trim() !== "application/json") {
     throw new ClientError(415, "回答要使用 JSON 格式");
   }
@@ -49,10 +50,7 @@ async function answerBody(req: IncomingMessage) {
     throw new ClientError(400, "回答不是有效的 JSON");
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new ClientError(400, "回答格式不正确");
-  if (Object.keys(value).some((key) => !["choice", "text"].includes(key))) {
-    throw new ClientError(400, "回答只接受选项和补充文字");
-  }
-  return JSON.stringify(value);
+  return value as Record<string, unknown>;
 }
 
 function apiPath(url: URL, method: string) {
@@ -75,7 +73,7 @@ function apiPath(url: URL, method: string) {
   throw new ClientError(404, "没有这个接口");
 }
 
-export function startWorkbench(config: { url: string; owner?: string }, port = 4318) {
+export function startWorkbench(config: Config, port = 4318) {
   if (!config.owner) throw new Error("这台电脑没有本人的密钥。请在已安装并初始化中台的本人电脑上启动工作台。");
   const hub = new URL(config.url);
   if (!["http:", "https:"].includes(hub.protocol) || hub.username || hub.password || hub.search || hub.hash) {
@@ -88,6 +86,27 @@ export function startWorkbench(config: { url: string; owner?: string }, port = 4
       { content: readFileSync(join(import.meta.dirname, "public", file)), type },
     ]),
   );
+  const hubCall = async (path: string, body?: unknown, source = false) => {
+    const key = source ? config.source?.key : config.owner;
+    if (!key) throw new ClientError(400, "缺少消息来源配置");
+    let response: Response;
+    let data: any;
+    try {
+      response = await fetch(hub.href.replace(/\/$/, "") + path, {
+        method: body === undefined ? "GET" : "POST",
+        headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        redirect: "error",
+        signal: AbortSignal.timeout(10000),
+      });
+      data = await response.json();
+    } catch {
+      throw new ClientError(502, "未能确认中台响应，请刷新核对提交结果后再操作。");
+    }
+    if (!response.ok) throw new ClientError(response.status, data?.error ?? "中台请求失败");
+    return data;
+  };
+  const chats = createChatService(config, hubCall);
   const server = createServer(async (req, res) => {
     try {
       const authority = `127.0.0.1:${req.socket.localPort}`;
@@ -102,11 +121,28 @@ export function startWorkbench(config: { url: string; owner?: string }, port = 4
         res.writeHead(200, { ...HEADERS, "content-type": asset.type }).end(asset.content);
         return;
       }
-      const path = apiPath(url, req.method ?? "GET");
+      const path = url.pathname.startsWith("/api/chat/") ? null : apiPath(url, req.method ?? "GET");
       if (req.headers["x-workbench"] !== "1" || req.headers["sec-fetch-site"] === "cross-site") {
         throw new ClientError(403, "请从本机工作台打开此操作");
       }
-      const body = req.method === "POST" ? await answerBody(req) : undefined;
+      if (url.pathname.startsWith("/api/chat/")) {
+        if (url.search) throw new ClientError(400, "聊天请求不接受查询参数");
+        const body = req.method === "POST" ? await jsonBody(req) : undefined;
+        const match = /^\/api\/chat\/conversations\/([0-9a-f-]+)(\/messages)?$/.exec(url.pathname);
+        let result;
+        if (req.method === "GET" && url.pathname === "/api/chat/routes") result = await chats.routes();
+        else if (req.method === "GET" && url.pathname === "/api/chat/conversations") result = chats.list();
+        else if (req.method === "POST" && url.pathname === "/api/chat/conversations") result = await chats.create(body);
+        else if (req.method === "GET" && match && !match[2]) result = await chats.view(match[1]);
+        else if (req.method === "POST" && match?.[2]) result = await chats.send(match[1], body);
+        else throw new ClientError(404, "没有这个聊天接口");
+        json(res, 200, result);
+        return;
+      }
+      const parsed = req.method === "POST" ? await jsonBody(req) : undefined;
+      if (parsed && Object.keys(parsed).some((key) => !["choice", "text"].includes(key)))
+        throw new ClientError(400, "回答只接受选项和补充文字");
+      const body = parsed ? JSON.stringify(parsed) : undefined;
       const gone = new AbortController();
       res.on("close", () => gone.abort());
       let response: Response;
@@ -130,8 +166,10 @@ export function startWorkbench(config: { url: string; owner?: string }, port = 4
     } catch (error) {
       if (res.destroyed) return;
       if (!req.complete) res.setHeader("connection", "close");
-      json(res, error instanceof ClientError ? error.status : 500, {
-        error: error instanceof ClientError ? error.message : "工作台暂时无法处理这个请求",
+      json(res, error instanceof ClientError || error instanceof ChatError ? error.status : 500, {
+        ...(error instanceof ChatError && error.notSubmitted ? { notSubmitted: true } : {}),
+        error:
+          error instanceof ClientError || error instanceof ChatError ? error.message : "工作台暂时无法处理这个请求",
       });
     }
   });

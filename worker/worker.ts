@@ -68,6 +68,8 @@ type Entry = {
   stopping?: number;
   why?: "cancel" | "timeout" | "finished";
   result?: Result;
+  reply?: { text: string; truncated: boolean };
+  repliedAt?: string;
 };
 export type WorkerHub = Pick<Hub, "work" | "started" | "result">;
 export type WorkerOptions = {
@@ -269,9 +271,47 @@ export function createWorker({
     log(`run ${entry.run} (${rule.name}) turn ${entry.turn} started, pid ${child.pid}`);
   }
 
+  function recordReply(entry: Entry) {
+    if (!entry.reply || !entry.result) return;
+    const file = path.join(entry.dir, "reply.json");
+    try {
+      writeFileSync(
+        `${file}.tmp`,
+        JSON.stringify({
+          version: 1,
+          run: entry.run,
+          attempt: entry.attempt,
+          text: entry.reply.text,
+          truncated: entry.reply.truncated,
+          session: entry.result.session ?? null,
+          outcome: entry.result.outcome,
+          at: entry.repliedAt ?? new Date(now()).toISOString(),
+        }),
+        { mode: 0o600 },
+      );
+      renameSync(`${file}.tmp`, file);
+    } catch {
+      // This optional copy must never make completed business work run again.
+      sayOnce(`run ${entry.run}: couldn't save reply`);
+    }
+  }
+
+  function keepReply(entry: Entry, seen: Reading & { truncated?: boolean }) {
+    if (entry.reply || seen.error !== undefined || !seen.text?.trim()) return;
+    // Also remove an unfinished receipt fence: its internal data is not business prose.
+    const text = seen.text.replace(/```agent-autoloop[^\S\r\n]*\r?\n[\s\S]*?(?:```|$)/g, "").trim();
+    const characters = [...text.replaceAll(entry.token, "[redacted]")];
+    entry.reply = {
+      text: characters.slice(0, 100000).join(""),
+      truncated: !!seen.truncated || characters.length > 100000,
+    };
+  }
+
   function endWith(entry: Entry, result: Result) {
     entry.result = result;
+    entry.repliedAt = new Date(now()).toISOString();
     save(entry);
+    recordReply(entry);
   }
 
   async function start(job: Job) {
@@ -303,12 +343,12 @@ export function createWorker({
     }
   }
 
-  function read(entry: Entry, adapter: Adapter, code: number | null): Reading {
+  function read(entry: Entry, adapter: Adapter, code: number | null): Reading & { truncated?: boolean } {
     const { out, err } = files(entry);
     try {
       const reading = adapter.read(snapshot(out), code, code === null ? "" : snapshot(err));
       if (!reading) throw new Error("它什么也没给");
-      return reading;
+      return { ...reading, truncated: existsSync(out) && statSync(out).size > HEAD + TAIL };
     } catch (error) {
       sayOnce(`run ${entry.run}: couldn't read its output: ${error}`);
       // One still going goes on, since this says nothing about how it's doing. Whether one that has ended got started isn't
@@ -320,6 +360,7 @@ export function createWorker({
   function discardReceipt(entry: Entry, adapter: Adapter, problem: string) {
     const original = { ...entry, turn: entry.turn - entry.repairs };
     const reading = read(original, adapter, 0);
+    keepReply(entry, reading);
     const { result } = resultFrom(readMessage(reading.text ?? ""), {
       session: reading.session ?? (adapter.link ? entry.session : undefined),
       usage: entry.usage,
@@ -366,6 +407,11 @@ export function createWorker({
       }
       return endWith(entry, { outcome: "failed", error: error.slice(0, 500), ...known, ...usage });
     }
+    // Persist the business turn before a receipt-only repair replaces the current output.
+    // Entries from earlier versions can still recover it from their original turn.
+    if (!entry.reply) {
+      keepReply(entry, entry.repairs ? read({ ...entry, turn: entry.turn - entry.repairs }, adapter, 0) : seen);
+    }
     const { result, problem } = resultFrom(readMessage(seen.text), { session, usage: entry.usage });
     if (entry.repairs && !problem && result.outcome === "failed") return discardReceipt(entry, adapter, result.error!);
     if (!problem) return endWith(entry, result);
@@ -386,7 +432,10 @@ export function createWorker({
 
   /** Looks at a run in hand: still going, to be stopped, or ended. */
   async function check(entry: Entry) {
-    if (entry.result) return;
+    if (entry.result) {
+      if (!existsSync(path.join(entry.dir, "reply.json"))) recordReply(entry);
+      return;
+    }
     let adapter: Adapter;
     try {
       adapter = await adapterFor(entry.job.agent.use);

@@ -16,7 +16,8 @@
       >
       <div class="nav-label">工作空间</div>
       <nav aria-label="主导航">
-        <a href="#overview">◈ <span>运行总览</span></a
+        <a href="#chat-section">◌ <span>任务对话</span></a
+        ><a href="#overview">◈ <span>运行总览</span></a
         ><a href="#questions">◇ <span>待你回答</span><span id="nav-count" class="nav-count">—</span></a
         ><a href="#rules-section">≡ <span>任务规则</span></a
         ><a href="#decisions-section">↳ <span>最近决定</span></a>
@@ -47,6 +48,57 @@
         <div class="stat"><span>待回答</span><strong>—</strong></div>
         <div class="stat"><span>今日结束的轮次</span><strong>—</strong></div>
       </div>
+      <section id="chat-section" class="section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">WORK WITH YOUR AGENT</p>
+            <h2>任务对话</h2>
+          </div>
+          <button id="chat-refresh" type="button" class="button secondary">刷新对话</button>
+        </div>
+        <p class="section-caption">提出需求，和负责这个任务的 Agent 继续讨论。聊天不是 Spec/Plan 版本审批。</p>
+        <p id="chat-error" class="error-banner" role="alert" hidden></p>
+        <div class="chat-workspace">
+          <aside class="chat-sidebar" aria-label="任务对话列表">
+            <form id="chat-new">
+              <label for="chat-route">新任务交给</label>
+              <select id="chat-route" required disabled>
+                <option value="">正在读取已配置 Agent…</option>
+              </select>
+              <p id="chat-route-info" class="meta"></p>
+              <button id="chat-create" class="button" type="submit" disabled>＋ 新建对话</button>
+            </form>
+            <p id="chat-setup" class="scope-note" hidden></p>
+            <div id="chat-list" class="chat-list"><p class="empty">正在读取对话…</p></div>
+          </aside>
+          <section class="chat-main" aria-label="当前任务对话">
+            <header class="chat-header">
+              <h3 id="chat-title">从一个需求开始</h3>
+              <p id="chat-context" class="meta">选择已配置的 Agent 新建对话，或继续左侧已有任务。</p>
+            </header>
+            <div id="chat-history" class="chat-history" tabindex="0" aria-label="对话记录">
+              <p class="empty">这里会显示你的消息、实际运行状态和 Agent 的最终回复。</p>
+            </div>
+            <div id="chat-cards"></div>
+            <form id="chat-compose" class="chat-compose">
+              <label for="chat-text">发给这个任务的 Agent</label>
+              <textarea
+                id="chat-text"
+                rows="3"
+                maxlength="4000"
+                placeholder="描述需求，或补充这项任务的下一步…"
+                disabled
+              ></textarea>
+              <div class="chat-compose-actions">
+                <span id="chat-length" class="meta">0 / 4000</span
+                ><button id="chat-send" class="button" type="submit" disabled>发送消息 →</button>
+              </div>
+              <p id="chat-status" class="form-message" role="status">请先选择或新建对话。</p>
+              <button id="chat-retry" class="button secondary" type="button" hidden>核对并重试原消息</button>
+            </form>
+          </section>
+        </div>
+      </section>
       <section id="questions" class="section">
         <div class="section-heading">
           <div>

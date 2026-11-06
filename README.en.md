@@ -17,13 +17,13 @@ Most of us use command-line agents like Claude Code or Codex by babysitting a te
 - **One machine, one install command.** Runs on your Mac or Linux machine. No cloud server or inbound ports required.
 - **Connect a new agent in one line.** No SDK, no agent source code to fork. Any CLI tool that takes a prompt and prints a final reply can plug in.
 - **The hub stays headless.** Cards reach you on Feishu, DingTalk, WeCom, Slack, Discord, or desktop notifications when you are needed. Everything else is one command away.
-- **Optional workbench in this fork.** Run `npm run workbench` from this source checkout to view rules, runs, history and pending questions, and submit answers. This separate, local-only HTTP client reads your existing owner configuration; it does not change the hub protocol. See [setup and security boundaries](clients/workbench/README.md). The interface is Chinese. It does not implement version-bound Spec/Plan approvals, workflow stages, merges or deployment. Upstream installation/update commands below still install upstream releases without this client.
+- **Local workbench in this fork.** Inspect runs and pending questions, answer cards, and start task conversations using a locally configured agent and project directory. Send requests, read final replies, and continue the discussion. This separate HTTP client does not change the hub protocol. Final replies require this fork’s updated local worker; output is not streamed. See [setup and security boundaries](clients/workbench/README.md). The interface is Chinese.
 
 ## Get started
 
 Works on macOS and Linux. You need Node 24, Git, curl, and at least one command-line agent already signed in; no GitHub account required. You can also hand the [installation guide](INSTALL.md) to your agent and let it install everything for you.
 
-> **Windows: pending.** Many of you have asked for a Windows version, and I've seen every request. I'm away on a work trip without a Windows machine, so I can't build or test it on real hardware, and it doesn't run on Windows yet. When I get home this weekend (November 7–8), I'll finish it, run compatibility tests, and then release it properly. Progress will be posted in [#17](https://github.com/KKKKhazix/agent-autoloop/issues/17). If you can't wait, WSL2 works for now; see [INSTALL](INSTALL.md) for what to expect.
+> **Windows: use WSL2 for now.** Native Windows is not supported yet. Run the Linux setup inside WSL2; see [INSTALL](INSTALL.md) for service and notification limitations and [#17](https://github.com/KKKKhazix/agent-autoloop/issues/17) for native compatibility progress.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/KKKKhazix/agent-autoloop/main/install.sh | sh
@@ -55,6 +55,32 @@ After you answer, run agent-autoloop status to see it pick the work back up and 
 ```
 
 In an interactive terminal, just type the option number. In a non-interactive terminal, run `agent-autoloop answer 1 2` to pick green. Then `agent-autoloop status` shows that the agent resumed its conversation and finished, along with rounds, tokens, and cost for today and the past seven days ([how they are counted](skills/agent-autoloop/SKILL.md#看情况回答)).
+
+## Start task chat from this fork
+
+You need Node.js 24+, this fork’s source checkout, a signed-in CLI agent, and initialized local hub configuration with owner/source credentials, a hub, and a worker. For a fresh setup, run the following from the source root. The example uses an isolated data directory and Codex; use `--agent claude` if that is your installed agent. Do not run `init` again against an existing configuration.
+
+```sh
+# Terminal 1: use the same AGENT_AUTOLOOP_HOME for every command.
+export AGENT_AUTOLOOP_HOME="$HOME/.agent-autoloop-workbench"
+node bin/agent-autoloop.ts init --agent codex --no-service
+# Replace the path with an existing absolute project directory.
+npm run workbench:chat -- --name "项目对话" --agent codex --cwd /absolute/path/to/project
+node bin/agent-autoloop.ts check
+node bin/agent-autoloop.ts up
+```
+
+```sh
+# Terminal 2: same source checkout and data directory.
+export AGENT_AUTOLOOP_HOME="$HOME/.agent-autoloop-workbench"
+npm run workbench
+```
+
+Open `http://127.0.0.1:4318`, choose the configured rule under “任务对话”, and click “新建对话”. For an existing setup, skip `init` and use `npm run workbench:chat -- --name "项目对话" --agent EXISTING_ID --cwd EXISTING_PATH`, substituting a registered agent ID and an existing absolute directory. The setup command backs up and adds a fixed rule with `resume: true` and `parallel: 1`, without changing agent commands or permissions. It rejects conflicting routes and existing rule names. Restart the worker and workbench afterward; stop existing instances before starting this source version against the same data directory. See [the full startup guide](clients/workbench/README.md#启动).
+
+Conversations and replies already read are saved locally across workbench restarts. Full final replies come from the updated worker on the same machine and data directory, not raw terminal logs; old or remote workers show an explicitly labeled summary instead. Output is not streamed and may be marked truncated. Supported agents resume using their actual session IDs, but permanent model context is not guaranteed. Ask cards still require an explicit answer; typing “yes” in chat does not answer a card or approve a version of a Spec or Plan. This client does not add workflow-stage orchestration, merge or deploy controls, or an extra agent sandbox.
+
+The upstream installer and update commands above do not include this fork’s workbench or reply-saving worker changes.
 
 ## How a piece of work flows
 
