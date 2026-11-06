@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Autoloop · 研究工作台</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">跳到主要内容</a>
+    <aside class="sidebar">
+      <a class="brand" href="#main"
+        ><span class="brand-mark" aria-hidden="true">a↺</span><span>autoloop<small>研究工作台</small></span></a
+      >
+      <div class="nav-label">工作空间</div>
+      <nav aria-label="主导航">
+        <a href="#overview">◈ <span>运行总览</span></a
+        ><a href="#questions">◇ <span>待你回答</span><span id="nav-count" class="nav-count">—</span></a
+        ><a href="#rules-section">≡ <span>任务规则</span></a
+        ><a href="#decisions-section">↳ <span>最近决定</span></a>
+      </nav>
+      <div class="sidebar-note">
+        <span class="small-label">轻量 · 可追溯</span>
+        <p>事件触发工作，<br />需要判断时再问你。</p>
+        <span class="muted">独立 HTTP 客户端<br />不改变内核调度</span>
+      </div>
+    </aside>
+    <main id="main">
+      <header class="topbar">
+        <span>工作空间 <span class="separator">/</span> 研究工作台</span
+        ><span class="connection" id="connection" role="status">连接中</span>
+      </header>
+      <section id="overview" class="intro">
+        <div>
+          <p class="eyebrow">AGENT AUTOLOOP / WORKBENCH</p>
+          <h1>让工作继续，<br class="mobile-break" />把判断留给你。</h1>
+          <p class="muted">看清每一轮发生了什么，在需要时给出下一步。</p>
+        </div>
+        <button id="refresh" class="button secondary" type="button">↻ 刷新状态</button>
+      </section>
+      <p id="global-error" class="error-banner" role="alert" hidden></p>
+      <div id="stats" class="stats" aria-label="运行统计">
+        <div class="stat"><span>正在运行</span><strong>—</strong></div>
+        <div class="stat"><span>排队中</span><strong>—</strong></div>
+        <div class="stat"><span>待回答</span><strong>—</strong></div>
+        <div class="stat"><span>今日结束的轮次</span><strong>—</strong></div>
+      </div>
+      <section id="questions" class="section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">YOUR NEXT MOVE</p>
+            <h2>待你回答 <span id="ask-count" class="count">—</span></h2>
+          </div>
+          <p class="section-caption">回答会触发后续处理，不会让本轮等待。</p>
+        </div>
+        <p class="scope-note">这里提交的是问题卡片的回答，不是绑定 Spec / Plan 版本的审批。</p>
+        <div id="asks" class="asks"><p class="empty">正在读取问题卡片…</p></div>
+      </section>
+      <section id="runs-section" class="section">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">FOLLOW THE WORK</p>
+            <h2>运行记录</h2>
+          </div>
+          <span id="run-count" class="muted">读取中</span>
+        </div>
+        <div class="filters">
+          <label class="search-label"
+            ><span class="sr-only">搜索已加载的运行记录</span
+            ><input id="search" type="search" placeholder="搜索规则、摘要、事件或轮次…" /></label
+          ><label
+            ><span class="sr-only">筛选运行状态</span
+            ><select id="status-filter">
+              <option value="">全部状态</option>
+              <option value="claimed">正在运行</option>
+              <option value="queued">排队中</option>
+              <option value="unknown">状态未知</option>
+              <option value="done">本轮结束</option>
+              <option value="nothing">没事可做</option>
+              <option value="cancelled">已停止</option>
+            </select></label
+          ><label
+            ><span class="sr-only">筛选任务规则</span
+            ><select id="rule-filter">
+              <option value="">全部规则</option>
+            </select></label
+          >
+        </div>
+        <div class="workbench">
+          <div class="run-pane">
+            <div id="runs" class="run-list"><p class="empty">正在读取运行记录…</p></div>
+            <div class="pagination">
+              <button id="load-more" class="button secondary" disabled>加载更早的轮次</button>
+              <p id="page-note" class="muted">搜索与筛选仅覆盖已加载记录</p>
+            </div>
+          </div>
+          <section id="detail" class="detail" aria-label="运行详情">
+            <div class="detail-empty">
+              <span aria-hidden="true">↳</span>
+              <h3>每一轮，都有来处。</h3>
+              <p>选择左侧记录，查看触发事件、<br />运行信息和事实时间线。</p>
+            </div>
+          </section>
+        </div>
+      </section>
+      <div class="bottom-grid">
+        <section id="rules-section" class="section">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">TRUSTED RULES</p>
+              <h2>任务规则</h2>
+            </div>
+            <span class="muted">只读</span>
+          </div>
+          <div id="rules"><p class="empty">正在读取规则…</p></div>
+        </section>
+        <section id="decisions-section" class="section">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">HUMAN IN THE LOOP</p>
+              <h2>最近决定</h2>
+            </div>
+          </div>
+          <div id="decisions"><p class="empty">正在读取决定…</p></div>
+        </section>
+      </div>
+      <footer><span>一轮结束 ≠ 事项完成。状态来自中台的真实记录。</span><span id="updated">尚未同步</span></footer>
+    </main>
+  </body>
+</html>

@@ -14,7 +14,7 @@
 
 新 Agent、事件插件和通道接在插件层；完整业务流程可以做成场景模板。先看 [插件开发说明](docs/plugins.md) 和 [现有场景](README.md#拿来即用的场景模板)，避免重复实现。
 
-内核保持零运行时依赖，不连接外部产品。总览页、工作流画布和其他界面属于独立客户端，不放进这个仓库。改协议或核心流程前，先说明具体场景和兼容影响；维护约定见 [AGENTS.md](AGENTS.md)，协议见 [docs/protocol.md](docs/protocol.md)。
+内核保持零运行时依赖，不连接外部产品。总览页、工作流画布和其他界面属于独立客户端。本 fork 的 `clients/workbench/` 是可单独启动的客户端，不能将界面和业务状态写入内核。改协议或核心流程前，先说明具体场景和兼容影响；维护约定见 [AGENTS.md](AGENTS.md)，协议见 [docs/protocol.md](docs/protocol.md)。
 
 ## 提交改动
 

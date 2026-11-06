@@ -16,7 +16,8 @@ Most of us use command-line agents like Claude Code or Codex by babysitting a te
 
 - **One machine, one install command.** Runs on your Mac or Linux machine. No cloud server or inbound ports required.
 - **Connect a new agent in one line.** No SDK, no agent source code to fork. Any CLI tool that takes a prompt and prints a final reply can plug in.
-- **No web dashboard.** Cards reach you on Feishu, DingTalk, WeCom, Slack, Discord, or desktop notifications when you are needed. Everything else is one command away.
+- **The hub stays headless.** Cards reach you on Feishu, DingTalk, WeCom, Slack, Discord, or desktop notifications when you are needed. Everything else is one command away.
+- **Optional workbench in this fork.** Run `npm run workbench` from this source checkout to view rules, runs, history and pending questions, and submit answers. This separate, local-only HTTP client reads your existing owner configuration; it does not change the hub protocol. See [setup and security boundaries](clients/workbench/README.md). The interface is Chinese. It does not implement version-bound Spec/Plan approvals, workflow stages, merges or deployment. Upstream installation/update commands below still install upstream releases without this client.
 
 ## Get started
 
