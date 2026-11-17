@@ -27,11 +27,7 @@ const model = {
   drafts: new Map(),
   askNodes: new Map(),
 };
-const time = (value) => {
-  if (value === null || value === undefined || value === "") return "未记录";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "时间未知" : date.toLocaleString("zh-CN", { hour12: false });
-};
+const time = (value) => chatHistory.time(value);
 const badge = (state) =>
   el(
     "span",
@@ -733,14 +729,12 @@ function renderChatHistory(detail) {
   const scrollTop = history.scrollTop;
   const entries = [];
   for (const message of array(detail.messages)) entries.push({ at: message.at, message });
-  for (const run of array(detail.runs))
-    entries.push({ at: run.reply?.at || run.finishedAt || run.claimedAt || 0, run });
-  entries.sort((a, b) => (new Date(a.at).getTime() || 0) - (new Date(b.at).getTime() || 0));
+  for (const run of array(detail.runs)) entries.push({ at: chatHistory.runAt(run), run });
   preserveFocus(history, () => {
     history.replaceChildren();
     if (!detail.historyComplete)
       history.append(el("p", "部分早期记录不可用，下面显示当前可读取的历史。", "scope-note"));
-    for (const entry of entries) {
+    for (const entry of chatHistory.sort(entries)) {
       const node = el("article", null, entry.message ? "chat-message chat-user" : "chat-message chat-agent");
       if (entry.message) {
         const message = entry.message;

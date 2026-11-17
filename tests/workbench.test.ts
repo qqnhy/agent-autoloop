@@ -33,7 +33,7 @@ const api = (path: string, init: RequestInit = {}) =>
   fetch(base + path, { ...init, headers: { "x-workbench": "1", ...init.headers } });
 
 test("only fixed static assets are public, and they never contain the owner key", async () => {
-  for (const path of ["/", "/app.js", "/styles.css"]) {
+  for (const path of ["/", "/app.js", "/history.js", "/styles.css"]) {
     const response = await fetch(base + path);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("cache-control"), "no-store");
