@@ -152,6 +152,55 @@ test("another conversation has its own subject and session; stored history survi
   assert.equal((await call("/api/chat/conversations")).data.conversations.length, 2);
 });
 
+test("a run carries the hub's real creation time while queued and after it is claimed or finished", async () => {
+  const id = "77777777-7777-4777-8777-777777777777";
+  assert.equal((await call("/api/chat/conversations", { id, rule: "项目对话" })).status, 200);
+  const sent = await call(chat(id) + "/messages", { id: msg1, text: "排队时也要显示真实创建时间" });
+  assert.equal(sent.status, 200);
+  const hubState = await (
+    await fetch(config.url + "/v1/state", { headers: { authorization: `Bearer ${config.owner}` } })
+  ).json();
+  const queued = (await call(chat(id))).data.runs[0];
+  assert.equal(queued.state, "queued");
+  assert.ok(!Number.isNaN(Date.parse(queued.createdAt)), "a queued run must have a real creation time");
+  assert.equal(queued.createdAt, hubState.runs.find((run: any) => run.id === queued.id).createdAt);
+  assert.ok(queued.createdAt >= sent.data.message.at, "the run starts at or after the message that caused it");
+  const job = hub.claimNext("here", "created-at-claim")!;
+  assert.equal(job.context.events[0].subject, `wb:${id}`);
+  assert.equal((await call(chat(id))).data.runs[0].createdAt, queued.createdAt);
+  hub.finish(job.run, job.token, { outcome: "done", summary: "创建时间一直保留", session: "created-at-session" });
+  assert.equal((await call(chat(id))).data.runs[0].createdAt, queued.createdAt);
+});
+
+test("a run whose creation time is missing reports none instead of inventing the epoch", async () => {
+  const { createChatService } = await import("../clients/workbench/chat.ts");
+  const id = "88888888-8888-4888-8888-888888888888";
+  const service = createChatService(config, async (path, body, source) => {
+    const result = await fetch(config.url + path, {
+      method: body === undefined ? "GET" : "POST",
+      headers: {
+        authorization: `Bearer ${source ? config.source.key : config.owner}`,
+        "content-type": "application/json",
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    const data = await result.json();
+    assert.equal(result.ok, true, JSON.stringify(data));
+    if (path.startsWith("/v1/runs/"))
+      for (const fact of data)
+        for (const change of fact.changes ?? [])
+          if (change.table === "runs" && change.row) delete change.row.created_at;
+    return data;
+  });
+  await service.create({ id, rule: "项目对话" });
+  await service.send(id, { id: msg1, text: "缺少时间时不要显示 1970" });
+  const run = (await service.view(id)).runs[0];
+  assert.equal(run.createdAt, null);
+  const job = hub.claimNext("here", "missing-created-at")!;
+  assert.equal(job.context.events[0].subject, `wb:${id}`);
+  hub.finish(job.run, job.token, { outcome: "done", summary: "清理缺少创建时间的轮次" });
+});
+
 test("changed or ambiguous trusted routing blocks further messages instead of silently changing the target", async () => {
   const saved = readFileSync(rulesFile, "utf8");
   const changed = JSON.parse(saved);

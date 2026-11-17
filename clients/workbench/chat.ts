@@ -35,6 +35,7 @@ type Run = {
   summary: string;
   error: string;
   session: string | null;
+  createdAt: string | null;
   claimedAt: string | null;
   finishedAt: string | null;
   notBefore: string | null;
@@ -272,6 +273,7 @@ export function createChatService(config: Config, call: Call) {
       summary: row.summary ?? "",
       error: row.error ?? "",
       session: row.session ?? null,
+      createdAt: row.created_at ?? null,
       claimedAt: row.claimed_at,
       finishedAt: row.finished_at,
       notBefore: row.not_before,
